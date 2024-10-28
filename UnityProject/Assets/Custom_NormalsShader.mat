@@ -7,8 +7,8 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: VertexAnim
-  m_Shader: {fileID: 4800000, guid: 4bdf8d8318ba1d04e977435867fe4ce4, type: 3}
+  m_Name: Custom_NormalsShader
+  m_Shader: {fileID: 4800000, guid: 48d867ff1ea3765469d9943c0013ad7b, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -22,19 +22,8 @@ Material:
   m_LockedProperties: 
   m_SavedProperties:
     serializedVersion: 3
-    m_TexEnvs:
-    - _MainTex:
-        m_Texture: {fileID: 8400000, guid: b1f4d06f32562bc4c8a0030d42df7e86, type: 2}
-        m_Scale: {x: 1, y: 1}
-        m_Offset: {x: 0, y: 0}
+    m_TexEnvs: []
     m_Ints: []
-    m_Floats:
-    - _Amplitude: 0.001
-    - _Frequency: 1000
-    - _Glossiness: 0.5
-    - _Metallic: 0
-    - _RefractionDepth: 0.5
-    - _Speed: 100
-    m_Colors:
-    - _Color: {r: 1, g: 1, b: 1, a: 1}
+    m_Floats: []
+    m_Colors: []
   m_BuildTextureStacks: []

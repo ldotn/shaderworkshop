@@ -4,23 +4,38 @@ using UnityEngine;
 
 public class NewBehaviourScript : MonoBehaviour
 {
-    public Shader awesomeShader = null;
-    private Material m_renderMaterial;
+    public Material postProMaterial;
 
     void Start()
     {
-        if (awesomeShader == null)
+        Camera.main.depthTextureMode = DepthTextureMode.DepthNormals;
+
+        // Generate the SSAO sampling kernel with a cosine weighted distribution
+        // For the derivation of this, check https://ameye.dev/notes/sampling-the-hemisphere/
+        const uint kernelSize = 64;
+        Vector4[] samplingKernel = new Vector4[kernelSize];
+        for (int i = 0; i < kernelSize; i++)
         {
-            Debug.LogError("no awesome shader.");
-            m_renderMaterial = null;
-            return;
+            float e0 = Random.Range(-1.0f, 1.0f);
+            float e1 = Random.Range(-1.0f, 1.0f);
+
+            float theta = Mathf.Acos(Mathf.Sqrt(e0));
+            float phi = 2 * Mathf.PI * e1;
+
+            samplingKernel[i] = new Vector4(
+                Mathf.Sin(theta) * Mathf.Cos(phi),
+                Mathf.Sin(theta) * Mathf.Sin(phi),
+                Mathf.Cos(theta),
+                0 // Unused, unity only does float4
+            );
         }
-        m_renderMaterial = new Material(awesomeShader);
-        Camera.main.depthTextureMode = DepthTextureMode.Depth;
+
+        postProMaterial.SetVectorArray("_SamplingKernel", samplingKernel);
     }
+
     void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
-        Graphics.Blit(source, destination, m_renderMaterial);
+        Graphics.Blit(source, destination, postProMaterial);
     }
 
     public float movementSpeed = 10.0f;
@@ -59,5 +74,9 @@ public class NewBehaviourScript : MonoBehaviour
         {
             transform.position -= transform.up * speed * Time.deltaTime;
         }
+
+        // Set view to world matrix
+        Matrix4x4 viewToWorld = Camera.main.worldToCameraMatrix.inverse;
+        postProMaterial.SetMatrix("_ViewToWorld", viewToWorld);
     }
 }

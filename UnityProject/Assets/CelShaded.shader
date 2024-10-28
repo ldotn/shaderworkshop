@@ -6,11 +6,16 @@ Shader "Unlit/CelShaded"
         _SpecularColor ("Color", Color) = (1,1,1,1)
         _SpecularPower ("Specular Power", Range(0, 64)) = 8
         _SpecularIntensity ("Specular Intensity", Range(0, 2)) = 0.1
-        _ShadingSteps ("Shading Steps", Range(1, 10)) = 3
+        _DiffuseShadingSteps ("Diffuse Shading Steps", Range(1, 10)) = 3
+        _SpecularShadingSteps ("Specular Shading Steps", Range(1, 10)) = 2
     }
     SubShader
     {
-        Tags {"LightMode"="ForwardBase"}
+        Tags 
+        {
+            "RenderType"="Opaque"
+            "LightMode"="ForwardBase"
+        }
         LOD 100
 
         Pass
@@ -23,7 +28,8 @@ Shader "Unlit/CelShaded"
 
             #include "UnityCG.cginc"
             #include "Lighting.cginc"
-            
+            #include "Shared.cginc"
+
             // compile shader into multiple variants, with and without shadows
             // (we don't care about any lightmaps yet, so skip these variants)
             #pragma multi_compile_fwdbase nolightmap nodirlightmap nodynlightmap novertexlight
@@ -41,27 +47,25 @@ Shader "Unlit/CelShaded"
             {
                 float2 uv : TEXCOORD0;
                 UNITY_FOG_COORDS(1)
-                SHADOW_COORDS(2) // put shadows data into TEXCOORD1
+                SHADOW_COORDS(2)
                 float4 pos : SV_POSITION;
                 float3 normal : NORMAL;
                 float3 wpos : TEXCOORD3;
             };
 
-            sampler2D _MainTex;
-            float4 _MainTex_ST;
             float4 _DiffuseColor;
             float4 _SpecularColor;
-            float _ShadingSteps;
+            float _DiffuseShadingSteps;
+            float _SpecularShadingSteps;
             float _SpecularPower;
             float _SpecularIntensity;
-            float4 _AmbientColor;
 
             v2f vert (appdata v)
             {
                 v2f o;
 
                 o.pos = UnityObjectToClipPos(v.pos);
-                o.uv = TRANSFORM_TEX(v.uv, _MainTex);
+                o.uv = v.uv;
                 o.normal = UnityObjectToWorldNormal(v.normal);
                 o.wpos = mul(unity_ObjectToWorld, v.pos).xyz;
 
@@ -71,46 +75,44 @@ Shader "Unlit/CelShaded"
                 return o;
             }
 
-            float QuantizeIntensity(float intensity, float transitionRadius, float steps)
-            {
-                float r = 0.5 - transitionRadius; // TODO : remove
-
-                intensity *= steps;
-                float transition = frac(intensity);
-                transition = saturate((transition - r) / (1 - 2*r));
-                transition = smoothstep(0, 1, transition);
-
-                intensity = floor(intensity) + transition;
-                intensity /= steps;
-
-                return intensity;
-			}
-
             float4 frag (v2f i) : SV_Target
             {
-                float3 lightColor = _LightColor0.rgb;
+                // Fill inputs for the lighting function
+                CelShadeInputs inputs;
 
-                // apply lighting
+                //    Fill constant values
+                inputs.DiffuseColor = _DiffuseColor;
+                inputs.SpecularColor = _SpecularColor;
+                inputs.SpecularPower = _SpecularPower;
+                inputs.SpecularIntensity = _SpecularIntensity;
+                inputs.DiffuseShadingSteps = _DiffuseShadingSteps;
+                inputs.SpecularShadingSteps = _SpecularShadingSteps;
+                inputs.RimLightSharpness = 5;
+                inputs.RimLightIntensity = 0.1;
+                inputs.RimLightColor = 1;
+
+                inputs.LightColor = _LightColor0.rgb;
+
+                //    Compute light dependent values
                 float3 worldNormal = normalize(i.normal);
                 float3 worldLightDir = normalize(_WorldSpaceLightPos0.xyz);
-                
-                float diffuse = max(dot(worldNormal, worldLightDir), 0.0);
+
+                inputs.NdotL = saturate(dot(worldNormal, worldLightDir));
 
                 float3 viewVector = normalize(_WorldSpaceCameraPos - i.wpos);
                 float3 halfVector = normalize(viewVector + worldLightDir);
-                float specular = pow(max(dot(worldNormal, halfVector), 0.0), _SpecularPower);
+                
+                inputs.NdotH = saturate(dot(worldNormal, halfVector));
+                inputs.NdotV = saturate(dot(worldNormal, viewVector));
 
-                // apply shadows
-                float shadow = SHADOW_ATTENUATION(i);
-                diffuse *= shadow;
-                specular *= shadow;
+                //    Sample shadows
+                inputs.Attenuation = SHADOW_ATTENUATION(i);
 
-                // quantize color
-                diffuse = QuantizeIntensity(diffuse, 0.05, _ShadingSteps);
-                specular = QuantizeIntensity(specular, 0.05, 2);
+                // Evaluate cel shaded model
+                float3 lighting = ComputeCelShadedLighting(inputs);
 
                 // Apply fog and output
-                float4 colorOut = float4(lightColor * (_DiffuseColor*diffuse + _SpecularColor*_SpecularIntensity*specular), 1);
+                float4 colorOut = float4(lighting, 1);
 
                 UNITY_APPLY_FOG(i.fogCoord, colorOut);
 
