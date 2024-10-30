@@ -90,15 +90,12 @@ Shader "Custom/WavyVertexShader"
                 CelShadeInputs inputs;
 
                 //    Fill constant values
-                inputs.DiffuseColor = _DiffuseColor;//lerp(float3(0.1,0.2,0.1), float3(0.5,0.8,0.5), i.wpos.y);
+                inputs.DiffuseColor = _DiffuseColor * saturate(2*i.wpos.y);
                 inputs.SpecularColor = _SpecularColor;
                 inputs.SpecularPower = _SpecularPower;
                 inputs.SpecularIntensity = _SpecularIntensity;
                 inputs.DiffuseShadingSteps = _DiffuseShadingSteps;
                 inputs.SpecularShadingSteps = _SpecularShadingSteps;
-                inputs.RimLightSharpness = 5;
-                inputs.RimLightIntensity = 0.1;
-                inputs.RimLightColor = 1;
 
                 inputs.LightColor = _LightColor0.rgb;
 
@@ -112,7 +109,6 @@ Shader "Custom/WavyVertexShader"
                 float3 halfVector = normalize(viewVector + worldLightDir);
                 
                 inputs.NdotH = saturate(dot(worldNormal, halfVector));
-                inputs.NdotV = saturate(dot(worldNormal, viewVector));
 
                 //    Sample shadows
                 inputs.Attenuation = UNITY_SHADOW_ATTENUATION(i, i.wpos);

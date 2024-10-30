@@ -5,13 +5,9 @@ struct CelShadeInputs
 {
     float3 DiffuseColor;
     float3 SpecularColor;
-    float3 RimLightColor;
     
     float SpecularPower;
     float SpecularIntensity;
-    
-    float RimLightSharpness;
-    float RimLightIntensity;
     
     float DiffuseShadingSteps;
     float SpecularShadingSteps;
@@ -19,7 +15,6 @@ struct CelShadeInputs
     float3 LightColor;
     float NdotL; // Saturated
     float NdotH;
-    float NdotV;
     float Attenuation;
 };
 
@@ -48,13 +43,9 @@ float3 ComputeCelShadedLighting(CelShadeInputs inputs)
     float specular = pow(inputs.NdotH, inputs.SpecularPower) * inputs.Attenuation;
     specular = QuantizeIntensity(specular, inputs.SpecularShadingSteps);
 
-    // Add a small rim light (unquantized)
-    float rim = pow(1 - inputs.NdotV, inputs.RimLightSharpness);
-    
     // Combine diffuse and specular lighting
     return   diffuse * inputs.DiffuseColor 
-           + specular * inputs.SpecularColor * inputs.SpecularIntensity 
-           + rim * inputs.RimLightColor * inputs.RimLightIntensity;
+           + specular * inputs.SpecularColor * inputs.SpecularIntensity;
 }
 
 float3 CalculateWindVertexDisp(float3 vertex, float amplitude, float frequency, float time, float speed)

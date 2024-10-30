@@ -16,8 +16,8 @@ public class NewBehaviourScript : MonoBehaviour
         Vector4[] samplingKernel = new Vector4[kernelSize];
         for (int i = 0; i < kernelSize; i++)
         {
-            float e0 = Random.Range(-1.0f, 1.0f);
-            float e1 = Random.Range(-1.0f, 1.0f);
+            float e0 = Random.Range(0.0f, 1.0f);
+            float e1 = Random.Range(0.0f, 1.0f);
 
             float theta = Mathf.Acos(Mathf.Sqrt(e0));
             float phi = 2 * Mathf.PI * e1;
@@ -78,5 +78,9 @@ public class NewBehaviourScript : MonoBehaviour
         // Set view to world matrix
         Matrix4x4 viewToWorld = Camera.main.worldToCameraMatrix.inverse;
         postProMaterial.SetMatrix("_ViewToWorld", viewToWorld);
+        postProMaterial.SetMatrix("_ViewProj", GL.GetGPUProjectionMatrix(Camera.main.projectionMatrix, false)* Camera.main.worldToCameraMatrix);
+        Matrix4x4 invProj = GL.GetGPUProjectionMatrix(Camera.main.projectionMatrix, false).inverse;
+        postProMaterial.SetMatrix("_InvProj", invProj);
+        postProMaterial.SetMatrix("_Proj", GL.GetGPUProjectionMatrix(Camera.main.projectionMatrix, false));
     }
 }

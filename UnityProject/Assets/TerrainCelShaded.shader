@@ -2,12 +2,10 @@ Shader "Unlit/CelShaded"
 {
     Properties
     {
-        _DiffuseColor ("Color", Color) = (1,1,1,1)
-        _SpecularColor ("Color", Color) = (1,1,1,1)
-        _SpecularPower ("Specular Power", Range(0, 64)) = 8
-        _SpecularIntensity ("Specular Intensity", Range(0, 2)) = 0.1
-        _DiffuseShadingSteps ("Diffuse Shading Steps", Range(1, 10)) = 3
-        _SpecularShadingSteps ("Specular Shading Steps", Range(1, 10)) = 2
+        _FlatsColor ("Color", Color) = (1,1,1,1)
+        _SlopesColor ("Color", Color) = (1,1,1,1)
+        _PeaksColor ("Color", Color) = (1,1,1,1)
+        _ShadingSteps ("Diffuse Shading Steps", Range(1, 10)) = 3
     }
     SubShader
     {
@@ -53,12 +51,10 @@ Shader "Unlit/CelShaded"
                 float3 wpos : TEXCOORD3;
             };
 
-            float4 _DiffuseColor;
-            float4 _SpecularColor;
-            float _DiffuseShadingSteps;
-            float _SpecularShadingSteps;
-            float _SpecularPower;
-            float _SpecularIntensity;
+            float4 _FlatsColor;
+            float4 _SlopesColor;
+            float4 _PeaksColor;
+            float _ShadingSteps;
 
             v2f vert (appdata v)
             {
@@ -77,16 +73,21 @@ Shader "Unlit/CelShaded"
 
             float4 frag (v2f i) : SV_Target
             {
+                // Interpolate color based on normal and position
+                float3 color = lerp( _SlopesColor.rgb, _FlatsColor.rgb, pow(saturate(i.normal.y), 5));
+                color = lerp(color, _PeaksColor.rgb, pow(saturate(0.02*i.wpos.y), 3));
+
                 // Fill inputs for the lighting function
                 CelShadeInputs inputs;
 
                 //    Fill constant values
-                inputs.DiffuseColor = _DiffuseColor;
-                inputs.SpecularColor = _SpecularColor;
-                inputs.SpecularPower = _SpecularPower;
-                inputs.SpecularIntensity = _SpecularIntensity;
-                inputs.DiffuseShadingSteps = _DiffuseShadingSteps;
-                inputs.SpecularShadingSteps = _SpecularShadingSteps;
+                //    Note : In a more real case, you would want to have a variant without specular instead of setting it to 0
+                inputs.DiffuseColor = color;
+                inputs.SpecularColor = 0;
+                inputs.SpecularPower = 1;
+                inputs.SpecularIntensity = 0;
+                inputs.DiffuseShadingSteps = _ShadingSteps;
+                inputs.SpecularShadingSteps = 1;
 
                 inputs.LightColor = _LightColor0.rgb;
 

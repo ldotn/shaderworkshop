@@ -3,6 +3,9 @@ Shader "Hidden/NewImageEffectShader"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        _SSAORadius ("SSAO Radius", Float) = 0.1
+        _SSAOBias ("SSAO Bias", Float) = 1.0
+        _SSAOCutoffRadius ("SSAO Cutoff Radius", Float) = 0.1
     }
     SubShader
     {
@@ -41,114 +44,126 @@ Shader "Hidden/NewImageEffectShader"
             UNITY_DECLARE_TEX2D(_CameraDepthTexture);
             UNITY_DECLARE_TEX2D(_CameraDepthNormalsTexture);
             float4x4 _ViewToWorld;
+            float4x4 _ViewProj;
+            float4x4 _InvProj;
+            float4x4 _Proj;
+
+            float _SSAORadius;
+            float _SSAOBias;
+            float _SSAOCutoffRadius;
 
             float4 _SamplingKernel[16];
 
-            float2 GenerateRandomOffset(float2 uv, int sample, float R)
+            // This is a very ugly way to generate ""random"" numbers, but it's good enough for this example
+            // A much better way is to use a precomputed texture with random values, normally blue noise
+            // Or a low discrepancy sequence like Halton or Hammersley
+            float3 GetRandom3(float2 uv, float i)
             {
-                // Generate a random number from the uv coordinates
-                float2 rng = frac(sin(dot(uv + sample, float2(12.9898, 78.233))) * 43758.5453);
-                float angle = rng.x*2 * 3.14159;
-                float distance = sqrt(rng.y) * R;
-                return float2(cos(angle), sin(angle)) * distance;
+			    return float3(
+					frac(sin(dot(uv, float2(12.9898, 78.233))) * 43758.5453 + i),
+					frac(cos(dot(uv, float2(12.9898, 78.233))) * 43758.5453 + i),
+                    frac(cos(dot(uv, float2(78.9898, 12.233))) * 34758.5453 + i)
+				);
             }
 
             bool IsValidSample(float2 sampleUV)
             {
                 return sampleUV.x >= 0 && sampleUV.x <= 1 && sampleUV.y >= 0 && sampleUV.y <= 1;
             }
-                        
-            float3x3 BuildTangentFrame(float3 normal)
-            {
-                float3 dp1 = cross(normal, float3(0.0, 0.0, 1.0));
-				float3 dp2 = cross(normal, float3(0.0, 1.0, 0.0));
-				float3 t = length(dp1) > length(dp2) ? dp1 : dp2;
-				t = normalize(t);
-				float3 b = cross(normal, t);
-				return float3x3(t, b, normal);
-			}
 
-            float CalculateAO(float2 uv, int N, float R, float3 vpos, float normal)
+            float CalculateAO(float2 uv, int N, float R, float3 wpos, float3 normal)
             {
                 float ao = 0;
-                int count = 0;
                 
-                float refDepth = 0;//LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv));
-                float dx = ddx(refDepth);
-                float dy = ddy(refDepth);
-                float g = sqrt(dx * dx + dy * dy);
+                float refDepth = LinearEyeDepth(_CameraDepthTexture.Sample(sampler_CameraDepthTexture, uv).x);
 
-                float3x3 tangentFrame = BuildTangentFrame(normal);
+                // By choosing a random vector as one of our basis vectors, we can create a random tangent space
+                // We are constructing the tangent space using Gram-Schmidt orthogonalization
+                float3 randomVec = GetRandom3(uv, 0);
+                float3 tangent   = normalize(randomVec - normal * dot(randomVec, normal));
+                float3 bitangent = cross(normal, tangent);
 
+                float3x3 tangentFrame = float3x3(tangent, bitangent, normal);  
+                
                 for (int i = 0; i < N; i++)
                 {
-                    /*float3 samplePos = wpos + mul(tangentFrame, _SamplingKernel[i].xyz);
-                    float4 sampleUV = ComputeScreenPos(mul(UNITY_MATRIX_VP, float4(samplePos, 1)));
-                    sampleUV /= sampleUV.w;*/
+                    float3 kernelDirection = _SamplingKernel[i].xyz;
 
-                    //float2 randomOffset = GenerateRandomOffset(uv, i, R);
-                    //float2 sampleUV = uv + randomOffset;
-                    float3 samplePos = vpos + mul(tangentFrame, _SamplingKernel[i].xyz);
-                    float2 sampleUV = samplePos.xy;
+                    float3 samplePos = wpos + _SSAORadius*mul(tangentFrame, kernelDirection);
+                    float4 sampleClip = ComputeScreenPos(mul(_ViewProj, float4(samplePos, 1)));
+                    sampleClip /= sampleClip.w;
 
-                    if (IsValidSample(sampleUV))
+                    sampleClip.z = LinearEyeDepth(sampleClip.z);
+
+                    if (IsValidSample(sampleClip.xy))
                     {
-                        float d = 0;//(refDepth - LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, sampleUV)));
-                        float bias = 0.15;
-                        ao += abs(d) < 0.005/g ? d : 0;//d < bias ? max(0,d / bias) : 0;//d * exp(-sharpness*d + bias);//exp(-sharpness*(d - bias)*(d-bias));
-                        count++;
+                        float d = LinearEyeDepth(_CameraDepthTexture.Sample(sampler_CameraDepthTexture, sampleClip.xy).x);
+                       
+                        float bias = _SSAOBias;
+                        float radius = _SSAOCutoffRadius;
+                        float rangeCheck = smoothstep(0.0, 1.0, radius / abs(refDepth - d));
+                        
+                        // This is a variant of the standard SSAO occlusion estimation, in this case we are comparing the difference of normals
+                        // If the nearby surfaces have very different normals, we can guess that the surface will be more occluded
+                        // The depth is used to ignore samples that are too far away
+                        // I'm doing this because it's a bit easier to get a consistent effect, but you shouldn't take it as something to go home with
+                        // Nailing down the occlusion test in SSAO is always a tricky thing
+                        float sz;
+                        float3 sn;
+                        DecodeDepthNormal(_CameraDepthNormalsTexture.Sample(sampler_CameraDepthNormalsTexture, sampleClip.xy), sz, sn);
+                        sn = mul((float3x3)_ViewToWorld, sn);
+                        ao += saturate(dot(normal, sn))*rangeCheck;
                     }
+                    else
+                    {
+						ao += 1;
+					}
                 }
 
-                return ao / count;
+                return ao / N;
             }
-            /*
-            // Function for converting depth to view-space position
-            // in deferred pixel shader pass.  vTexCoord is a texture
-            // coordinate for a full-screen quad, such that x=0 is the
-            // left of the screen, and y=0 is the top of the screen.
-            float3 VSPositionFromDepth(float2 vTexCoord)
+
+            float3 ReconstructWorldPosition(float2 uv, float depth)
             {
-                // Get the depth value for this pixel
-                float z = tex2D(_CameraDepthTexture, vTexCoord);  
-                // Get x/w and y/w from the viewport position
-                float x = vTexCoord.x * 2 - 1;
-                float y = (1 - vTexCoord.y) * 2 - 1;
-                float4 vProjectedPos = float4(x, y, z, 1.0f);
+                // Get the screen space position
+                float4 screenPos = float4(uv * 2.0 - 1.0, depth, 1.0);
+
                 // Transform by the inverse projection matrix
-                float4 vPositionVS = mul(vProjectedPos, g_matInvProjection);  
+                float4 viewPos = mul(_InvProj, screenPos);
+
                 // Divide by w to get the view-space position
-                return vPositionVS.xyz / vPositionVS.w;  
-            }*/
+                viewPos /= viewPos.w;
+
+                // Transform by the inverse view matrix to get the world-space position
+                float3 worldPos = mul(_ViewToWorld, viewPos).xyz;
+
+                return worldPos;
+            }
 
             fixed4 frag (v2f i, float4 fragCoord : Sv_Position) : SV_Target
             {
                 // Decode depth and normals from the camera Texture
-                float depth;
+                float depthLinear;
                 float3 normal;
-                //DecodeDepthNormal(tex2D(_CameraDepthNormalsTexture, i.uv), depth, normal);
+                DecodeDepthNormal(_CameraDepthNormalsTexture.Sample(sampler_CameraDepthNormalsTexture, i.uv), depthLinear, normal);
 
                 // Convert normal to world space
-                float3 wnormal = mul(_ViewToWorld, float4(normal, 0)).xyz;
+                // Using (float3x3) here is to only keep the rotation part of the matrix, as we don't want translation for normals
+                float3 wnormal = mul((float3x3)_ViewToWorld, normal);
 
                 // Compute wpos from view vector and depth
-                //float3 wpos = VSPositionFromDepth(i.uv.xy)
-               // wpos = mul(_ViewToWorld, float4(normal, 0)).xyz;
-
-               /* fixed4 col = tex2D(_MainTex, i.uv);
-                // just invert the colors
-                col.rgb = 1 - col.rgb;*/
+                float z = max(1e-4, _CameraDepthTexture.Sample(sampler_CameraDepthTexture, i.uv).x);
+                float3 wpos = ReconstructWorldPosition(i.uv.xy, z);
 
                 // Sample depth values from N random neighboring pixels selected uniformly in a radius R
                 float N = 16;
                 float R = 0.08;
-                float ao = CalculateAO(i.uv, N, R, float3(i.uv, depth), normal);
-                
-                float z = max(1e-4, _CameraDepthTexture.Sample(sampler_CameraDepthTexture, i.uv).x);//LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, i.uv));
 
+                float ao = CalculateAO(i.uv, N, R, wpos, wnormal);
 
 
                 // Sample 3x3 grid of depth values
+                // For simplicity, I'm keeping this separate from the depth samples of the SSAO pass, but if possible you should reuse them
                 float depthSamples[3][3];
                 [unroll]
                 for (int rx = -1; rx <= 1; rx++)
@@ -156,27 +171,36 @@ Shader "Hidden/NewImageEffectShader"
 					[unroll]
 					for (int ry = -1; ry <= 1; ry++)
 					{
-						depthSamples[rx+1][ry+1] = _CameraDepthTexture.Sample(sampler_CameraDepthTexture, i.uv, int2(rx,ry)).x / z;//LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, i.uv + offset));
+                        // Normalizing by the pixel depth is optional, but gives us the same edge intensity regardless of distance
+                        // Otherwise objects close to the camera will have weaker edges than far away objects
+						depthSamples[rx+1][ry+1] = _CameraDepthTexture.Sample(sampler_CameraDepthTexture, i.uv, int2(rx,ry)).x / z;
 					}
-				}
-                // normalize by pixel depth
+                }
                 
-               // Convolve sobel kernel in X and Y
-               float sobelX = -  depthSamples[0][0] +   depthSamples[0][2] 
+                // Convolve sobel kernel in X and Y
+                float sobelX = -  depthSamples[0][0] +   depthSamples[0][2] 
                               -2*depthSamples[1][0] + 2*depthSamples[1][2] 
                               -  depthSamples[2][0] +   depthSamples[2][2];
 
-               float sobelY = -  depthSamples[0][0] +   depthSamples[2][0] 
+                float sobelY = -  depthSamples[0][0] +   depthSamples[2][0] 
                               -2*depthSamples[0][1] + 2*depthSamples[2][1] 
                               -  depthSamples[0][2] +   depthSamples[2][2];
 
-                float sobel = saturate(2*(sobelX*sobelX + sobelY*sobelY));
-                float edge = pow(1 - sobel, 4);
-
-
+                // Calculate edge intensity from the gradient squared magnitude
+                // This is scaled and clamped to 0-1 (saturate), then inverted and raised to a power to control the sharpness
+                float preSaturateIntensity = 2;
+                float edgeSharpness = 4;
+                float sobel = saturate(preSaturateIntensity*(sobelX*sobelX + sobelY*sobelY));
+                float edge = pow(1 - sobel, edgeSharpness);
+                
+                // Square the AO to make it more pronounced
+                ao *= ao;
+                float3 viewVector = normalize(_WorldSpaceCameraPos - wpos);
                 float4 color = _MainTex.Sample(sampler_MainTex, i.uv);
 
-               return edge * color;
+                float rimL = pow(1 - saturate(dot(wnormal, viewVector)), 5);
+
+               return ao*(0.01 + 0.2*rimL) + edge*color;
             }
 
             ENDHLSL

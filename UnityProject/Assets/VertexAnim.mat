@@ -30,11 +30,17 @@ Material:
     m_Ints: []
     m_Floats:
     - _Amplitude: 0.001
+    - _DiffuseShadingSteps: 3
     - _Frequency: 1000
     - _Glossiness: 0.5
     - _Metallic: 0
     - _RefractionDepth: 0.5
+    - _SpecularIntensity: 0.1
+    - _SpecularPower: 8
+    - _SpecularShadingSteps: 2
     - _Speed: 100
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
+    - _DiffuseColor: {r: 0.8867924, g: 0.7559903, b: 0.004182993, a: 1}
+    - _SpecularColor: {r: 1, g: 0.8254717, b: 0.8254717, a: 1}
   m_BuildTextureStacks: []
